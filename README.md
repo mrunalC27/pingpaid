@@ -1,91 +1,105 @@
-> [!TIP]
-> **PayPal AI Hackathon**
-> 
-> Win part of $69,750 in total prizes
-> 
-> Build What's Next with PayPal and AI is a global online hackathon inviting developers, designers, founders, students, and builders to create something new using PayPal and AI.
-> 
-> There are no prescribed problem statements and no set of tracks. Build an agent, an app, an automation, a new payment experience, a business tool, a social product, or something we haven't thought of yet.
-> 
-> https://paypalaihackathon.devpost.com
+# PingPaid
 
-# PayPal SDK data pages
+**Send an invoice in one sentence. Get paid without the awkward chasing.**
 
-A Next.js app that reads PayPal sandbox data over the [PayPal REST API](https://developer.paypal.com/api/rest/) and shows it two ways:
+PingPaid is a small invoicing helper for freelancers, built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com). It runs on the PayPal sandbox, so no real money moves.
 
-- **Endpoint pages**: one [AG Grid](https://www.ag-grid.com/react-data-grid/) per PayPal endpoint the demo calls, showing what each returns.
-- **Dashboard** (`/dashboard`): an [AG Studio](https://www.ag-grid.com/studio/) report over all of that data, joined together, which you can edit and save in the browser.
+Freelancers lose time in two places: filling in invoice forms, and politely chasing the clients who pay late. PingPaid handles both:
 
-## Run locally
+1. **New invoice.** Type something like *"Logo design for Rahul Sharma (rahul@example.com), 3 hours at $20 an hour, due in 7 days"*. AI turns it into a draft invoice. You check it, change anything, and PayPal creates and sends the real (sandbox) invoice.
+2. **Who needs a nudge?** PingPaid looks at every unpaid invoice and finds the ones that are late or due soon. AI writes a reminder for each client, with a tone that matches how late it is. You read them, edit them, and approve. PayPal sends the reminders.
+3. **Dashboard.** An [AG Studio](https://www.ag-grid.com/studio/) dashboard shows who owes you, how late they are, what you have invoiced and what has come in.
 
-Requires Node.js 20.9 or later and a PayPal sandbox REST app ([developer.paypal.com](https://developer.paypal.com/dashboard/applications/sandbox)). The transactions and balances pages also need the app's **Transaction search** feature enabled.
+Nothing is ever sent without a click from you.
 
-```bash
-npm install
-cp env.example .env.local   # then fill in the values
-npm run dev
-```
+## How AI is used
 
-Open [http://localhost:3000](http://localhost:3000). Next.js only loads the dotted `.env.local`; it is git-ignored, so credentials stay out of the repo.
-
-Other scripts: `npm run build` (production build), `npm run start` (serve the build), `npm run lint`.
-
-### AG Studio licence (optional)
-
-Set `AG_STUDIO` in `.env.local` to your AG Studio licence key. The dashboard passes it to `AgStudioProvider`.
-
-### AI assistant (optional)
-
-The AG Studio dashboard at `/dashboard` has an AI assistant backed by OpenAI. The key is taken from the first of these that is set; with neither, the assistant is hidden:
-
-1. `AG_STUDIO_OPENAI_API_KEY`, specific to this app. Put it in `.env.local` to choose the key for this demo.
-2. `OPENAI_API_KEY`, the name OpenAI's own tools use. If you already export one (e.g. in `~/.zshrc`), the demo uses it with no setup, and spends against it.
-
-A separate name is needed because Next.js prefers variables already in the environment over `.env.local`, so a globally exported `OPENAI_API_KEY` can't be overridden per project. The server logs which variable it used (never the key) the first time the assistant is configured.
-
-`OPENAI_MODELS` lists the model ids the assistant may use, comma-separated, first one the default (`gpt-5.4-mini` when unset); with two or more, the chat offers a model picker.
-
-The key never reaches the browser. Studio's adapter ([`openai-adapter.ts`](app/dashboard/studio/openai-adapter.ts), copied from the AG Studio docs) runs client-side and posts to this app's own [`/api/ai/responses`](app/api/ai/responses/route.ts), which adds the key, only allows the configured models, caps output tokens, and streams OpenAI's reply back.
-
-In production `.env.local` isn't deployed: set the variable in your host's environment (e.g. Vercel project settings, `docker run --env-file`, or a secrets manager), as with the PayPal credentials. The route has no auth or rate limiting, so don't deploy it publicly with a real key without adding one.
-
-## How it works
-
-```
-lib/paypal.ts            Every PayPal call: OAuth token, paging, retries, response types
-lib/dashboard-data.ts    Turns those responses into the dashboard's related tables
-app/(endpoints)/         One page per endpoint, each rendering an AG Grid
-app/dashboard/           The AG Studio dashboard
-app/api/ai/responses/    Server-side proxy for the dashboard's AI assistant
-```
-
-[`lib/paypal.ts`](lib/paypal.ts) calls the REST API with plain `fetch`, no SDK. It gets an OAuth access token with the client-credentials grant and caches it until just before it expires. It follows `page`/`total_pages` paging, and retries on 401, 429 and 5xx responses. Its types are hand-written for the fields this demo reads, in the API's own snake_case.
-
-Every page is a server component that calls `await connection()`, so it renders per request with live data instead of being prerendered at build time. PayPal credentials never leave the server.
-
-## Endpoint pages
-
-Each page in [`app/(endpoints)`](app/(endpoints)) calls one function in `lib/paypal.ts`, maps the response to flat rows, and passes them with plain column definitions to the shared [`DataGrid`](app/(endpoints)/data-grid.tsx). The page header shows the REST calls behind it.
-
-| Page | `lib/paypal.ts` function | REST calls |
+| Where | What the AI does | Model |
 |---|---|---|
-| [`/products`](app/(endpoints)/products/page.tsx) | `listProducts()` | `GET /v1/catalogs/products`, then `GET /v1/catalogs/products/{id}` per product |
-| [`/plans`](app/(endpoints)/plans/page.tsx) | `listPlans()` | `GET /v1/billing/plans`, then `GET /v1/billing/plans/{id}` per plan |
-| [`/invoices`](app/(endpoints)/invoices/page.tsx) | `listInvoices()` | `GET /v2/invoicing/invoices`, then `GET /v2/invoicing/invoices/{id}` per invoice |
-| [`/transactions`](app/(endpoints)/transactions/page.tsx) | `searchTransactions(start, end)` | `GET /v1/reporting/transactions` |
-| [`/balances`](app/(endpoints)/balances/page.tsx) | `getBalances()` | `GET /v1/reporting/balances` |
+| New invoice | Reads one plain sentence and returns structured invoice details (client, email, items, quantities, prices, due date). It is told never to invent an email or an amount. You review the result before anything is created. | Google Gemini, structured JSON output |
+| Who needs a nudge? | Writes one short reminder per late invoice. The tone follows the lateness: *heads-up* (not late yet), *gentle* (1 to 3 days), *clear* (4 to 14 days), *firm* (over 14 days). It never threatens or mentions fees. | Google Gemini, structured JSON output |
 
-Things worth knowing about these endpoints:
+Gemini is sometimes overloaded, so [`lib/gemini.ts`](lib/gemini.ts) retries, then tries backup models. If every model fails, the nudge page falls back to a plain template and says so on the card.
 
-- **List endpoints return summaries.** Products have no type or category, plans no billing cycles, and invoices no line items, payments or refunds. So each record is fetched again in full, which is why these pages take a second or two.
-- **Billing plans keep their price in `billing_cycles`.** There is an optional `TRIAL` cycle, then the `REGULAR` cycle; `total_cycles: 0` means it bills until cancelled.
-- **Transaction Search covers at most 31 days per request** and rejects fractional seconds in dates. New activity can take up to three hours to appear. `fields=all` adds `payer_info` to each `transaction_info`. Event codes are [PayPal T-codes](https://developer.paypal.com/docs/transaction-search/transaction-event-codes/) (`T0001` = payout); status is `S` success, `P` pending, `D` denied, `V` reversed or `F` partially refunded.
-- **Amounts are decimal strings with a currency**, e.g. `{ "value": "2.99", "currency_code": "USD" }`. `amountOf()` turns them into numbers, and the grid formats money columns in each row's currency.
+Parts of this project were written with the help of Claude, an AI coding assistant.
 
-### The grid
+## What uses PayPal
 
-Pages are server components, so the column definitions they pass to the grid must be plain data, with no functions. Money columns use the `type: 'money'` column type, defined in `data-grid.tsx`, which formats the value in the row's `currency`. Date columns use AG Grid's built-in `cellDataType: 'dateString'` or `'dateTimeString'`. Every column can be sorted and filtered, and the search box filters across all columns.
+All calls go through [`lib/paypal.ts`](lib/paypal.ts), with plain `fetch` and no SDK:
 
-## Dashboard
+- `POST /v2/invoicing/generate-next-invoice-number`, `POST /v2/invoicing/invoices` and `POST /v2/invoicing/invoices/{id}/send` create and send an invoice.
+- `POST /v2/invoicing/invoices/{id}/remind` sends a reminder with the approved message.
+- `GET /v2/invoicing/invoices` (and per-invoice details) feed the nudge finder and the dashboard.
+- The starter's endpoint pages also read products, plans, transactions and balances.
 
-[`/dashboard`](app/dashboard/page.tsx) fetches all five endpoints at once. [`lib/dashboard-data.ts`](lib/dashboard-data.ts) turns them into related tables: customers, invoices, invoice line items, invoice payments, products, plans, transactions, payouts and balances. AG Studio's data sources, relationships, theme, default report and AI assistant are configured in [`app/dashboard/studio`](app/dashboard/studio). Reports you create or edit are saved in the browser's localStorage.
+## Run it locally
+
+You need Node.js 20.9 or later, and a free PayPal sandbox app.
+
+1. **PayPal sandbox app.** In the [PayPal developer dashboard](https://developer.paypal.com/dashboard/applications/sandbox) (make sure Sandbox is selected), create an app and tick **Transaction search** under Features. Copy its Client ID and Secret.
+2. **Gemini key.** Create an API key in [Google AI Studio](https://aistudio.google.com).
+3. **Install and configure.**
+
+   ```bash
+   npm install
+   cp env.example .env.local     # on Windows: copy env.example .env.local
+   ```
+
+   Fill in `.env.local`:
+
+   | Variable | Needed | What it is |
+   |---|---|---|
+   | `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` | yes | Your PayPal sandbox app credentials |
+   | `GEMINI_API_KEY` | yes | Your Gemini key |
+   | `GEMINI_MODEL` | no | First model to try. Defaults to `gemini-3.8-flash` |
+   | `GEMINI_FALLBACK_MODELS` | no | Comma-separated backup models, used when the first is overloaded or gone |
+   | `AG_STUDIO` | no | AG Studio licence key. Without it the dashboard works and shows a trial watermark |
+
+4. **Start it.**
+
+   ```bash
+   npm run dev
+   ```
+
+   Open [http://localhost:3000](http://localhost:3000). If Next.js fails to start on Windows with a message about Turbopack and native bindings, run `npm run dev -- --webpack` instead.
+
+Model names change over time. If you get a "model is no longer available" error, set `GEMINI_MODEL` to a current one. Google AI Studio shows which models your key can use.
+
+### Try it
+
+1. Open **New invoice**, click **Use an example**, then **Fill in my invoice**, then **Send invoice**. Make a few with different due dates.
+2. Open **Who needs a nudge?** and click **Check my invoices**. Use the dropdown to include invoices due within 7 or 14 days. Edit a message and send it.
+3. Open **Dashboard** to see who owes you. To see paid invoices, record a payment on an invoice in the sandbox invoicing dashboard.
+
+Invoices that are not yet late only appear in the nudge list if they are due within the chosen window. To see the "gentle", "clear" and "firm" tones, use invoices with past due dates (they become late as days pass).
+
+## Project layout
+
+```
+app/new/                 New invoice page: sentence in, editable draft, send
+app/nudge/               "Who needs a nudge?" page
+app/api/invoices/        Parse a sentence (AI) and create + send an invoice
+app/api/nudges/          Draft reminders (AI) and send the approved ones
+app/dashboard/           The AG Studio dashboard (report in studio/initial-report.ts)
+lib/gemini.ts            Gemini calls with retries and backup models
+lib/invoice-ai.ts        Sentence to invoice draft
+lib/nudges.ts            Who is late, which tone, AI-written messages
+lib/paypal.ts            All PayPal API calls
+lib/dashboard-data.ts    Turns PayPal invoices into the dashboard's tables
+app/(endpoints)/         Raw PayPal data pages, one AG Grid per endpoint
+```
+
+## Limits
+
+- Sandbox only. Emails go to sandbox inboxes, not real ones.
+- Reminders are sent when you click, not on a schedule. A real version would check daily in the background.
+- The dashboard shows `$` for every amount and does not convert currencies. Invoices in other currencies are separated by the currency switch.
+- Saved dashboard edits live in your browser's local storage.
+
+## Credits
+
+Started from PayPal's [AG Grid and AG Studio hackathon starter](https://github.com/paypaldev/hackathon-paypal-ag-grid-boilerplate), which provides the PayPal data pages and the dashboard shell. The invoice creation, AI features, nudge page, and the PingPaid dashboard report were built on top of it for this hackathon.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
