@@ -107,10 +107,8 @@ const owed: AgPageState = {
           sum('invoices.outstanding'),
         ],
       },
-      sort: [
-        { field: { id: 'invoices.daysOverdue' }, direction: 'desc' },
-        { field: { id: 'invoices.dueDate' }, direction: 'asc' },
-      ],
+      // Studio allows one sort field. Earliest due date first puts the most overdue on top.
+      sort: [{ field: { id: 'invoices.dueDate' }, direction: 'asc' }],
       format: title('Unpaid invoices, most urgent first'),
     },
   },
@@ -149,14 +147,13 @@ const collected: AgPageState = {
       },
     },
     'billed-vs-collected': {
-      type: 'combo-chart-grouped-column-line',
+      type: 'column-chart-grouped',
       dataMapping: {
-        categoryKey: [{ id: 'calendar::month' }],
+        categoryKey: [{ id: 'customers.name' }],
         valueKey: [sum('invoices.issuedAmount'), sum('invoices.paidAmount')],
-        secondaryValueKey: [{ id: 'collectionRate' }],
       },
       format: {
-        ...title('Invoiced and paid, by month'),
+        ...title('Invoiced and paid, by client'),
         style: { theme: { common: { legend: { enabled: true } } } },
       },
     },

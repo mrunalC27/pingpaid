@@ -7,22 +7,15 @@ import { AgStudioLogo } from './ui/logo';
 // The app frame, laid out like the PayPal Developer Dashboard: a white top bar, a left sidebar
 // and a light canvas. Shared by the dashboard, its loading skeleton and its error page.
 
-function PayPalWordmark({ className = '' }: { className?: string }) {
-  return (
-    <span className={`font-bold italic tracking-tight ${className}`}>
-      <span className="text-pp-blue-dark">Pay</span>
-      <span className="text-pp-sky">Pal</span>
-    </span>
-  );
-}
-
 function BrandLockup() {
   return (
     <div className="flex items-center gap-3">
-      <AgStudioLogo className="-ml-3 h-12 w-auto" />
+      <span className="text-xl font-bold tracking-tight text-pp-navy">
+        Ping<span className="text-pp-blue">Paid</span>
+      </span>
       <span className="h-6 w-px bg-pp-border" aria-hidden />
-      <span className="flex items-baseline gap-1 text-xs text-pp-muted">
-        powered by <PayPalWordmark className="text-base" /> APIs
+      <span className="flex items-center gap-1 text-xs text-pp-muted">
+        dashboard built with <AgStudioLogo className="h-9 w-auto" />
       </span>
     </div>
   );
@@ -41,9 +34,9 @@ function TopBar() {
         </span>
         <span className="ml-2 flex items-center gap-2">
           <span className="flex size-9 items-center justify-center rounded-full bg-pp-navy text-sm font-semibold text-white">
-            AG
+            PP
           </span>
-          <span className="hidden text-sm font-semibold sm:inline">Demo merchant</span>
+          <span className="hidden text-sm font-semibold sm:inline">My freelance business</span>
         </span>
       </div>
     </header>

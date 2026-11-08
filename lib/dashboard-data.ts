@@ -55,13 +55,13 @@ const RECEIVABLE = new Set<InvoiceStatus>(['SENT', 'UNPAID', 'PAYMENT_PENDING', 
 const customerIdOf = (invoice: Invoice) =>
   invoice.primary_recipients?.[0]?.billing_info?.email_address?.toLowerCase() ?? 'unknown';
 
-// Numbered so the buckets sort in age order on chart axes.
+// Named so that they sort in age order alphabetically on chart axes.
 function agingBucket(daysOverdue: number) {
-  if (daysOverdue <= 0) return '0. Not yet due';
-  if (daysOverdue <= 30) return '1. 1-30 days';
-  if (daysOverdue <= 60) return '2. 31-60 days';
-  if (daysOverdue <= 90) return '3. 61-90 days';
-  return '4. 90+ days';
+  if (daysOverdue <= 0) return 'Not yet due';
+  if (daysOverdue <= 30) return 'Overdue 1-30 days';
+  if (daysOverdue <= 60) return 'Overdue 31-60 days';
+  if (daysOverdue <= 90) return 'Overdue 61-90 days';
+  return 'Overdue 90+ days';
 }
 
 function invoiceRows(invoices: Invoice[], today: string) {

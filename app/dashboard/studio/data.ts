@@ -17,8 +17,18 @@ const CALENDAR_ID = 'calendar';
 // [id, name, format, hide?]
 type FieldSpec = [id: string, name: string, format: AgFormat, hide?: boolean];
 
+// Money is shown with a $ sign. Invoices in other currencies are not converted, so the page's
+// currency switch (USD by default) decides which invoices are summed.
+const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
 const fields = (specs: FieldSpec[]): AgFieldDefinition[] =>
-  specs.map(([id, name, format, hide]) => ({ id, name, format, ...(hide && { hide }) }));
+  specs.map(([id, name, format, hide]) => ({
+    id,
+    name,
+    format,
+    ...(format === 'currencyFormat' && { formatOptions: { format: USD } }),
+    ...(hide && { hide }),
+  }));
 
 // Foreign key 'table.field' -> primary key 'table.field'.
 const manyToOne = (id: string, source: string, target: string): AgRelationDefinition => {

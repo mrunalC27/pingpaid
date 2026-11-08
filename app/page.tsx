@@ -1,8 +1,10 @@
 import Link from 'next/link';
 
-const newInvoice = { href: '/new', label: 'New invoice', detail: 'Type a sentence, AI fills in the invoice' };
-const nudge = { href: '/nudge', label: 'Who needs a nudge?', detail: 'AI-written reminders for late invoices' };
-const dashboard = { href: '/dashboard', label: 'Dashboard', detail: 'AG Studio reports over all of the data below' };
+const actions = [
+  { href: '/new', title: 'New invoice', text: 'Type one sentence. AI fills in the invoice and PayPal sends it.' },
+  { href: '/nudge', title: 'Who needs a nudge?', text: 'See who is late and send friendly, AI-written reminders.' },
+  { href: '/dashboard', title: 'Dashboard', text: 'Who owes you, how late they are, and what has come in.' },
+];
 
 // One page per PayPal endpoint the demo calls, each in app/(endpoints).
 const endpoints = [
@@ -26,14 +28,29 @@ function PageLink({ href, label, detail }: { href: string; label: string; detail
 
 export default function Home() {
   return (
-    <main className="mx-auto w-full max-w-3xl p-16 font-paypal text-pp-ink">
-      <h1 className="text-[28px] font-semibold text-pp-navy">PayPal REST APIs with AG Grid &amp; AG Studio</h1>
-      <ul className="mt-6 divide-y divide-pp-border border-y border-pp-border">
-        <PageLink {...newInvoice} />
-        <PageLink {...nudge} />
-        <PageLink {...dashboard} />
+    <main className="mx-auto w-full max-w-3xl p-8 pt-16 font-paypal text-pp-ink sm:p-16">
+      <h1 className="text-4xl font-bold tracking-tight text-pp-navy">
+        Ping<span className="text-pp-blue">Paid</span>
+      </h1>
+      <p className="mt-3 text-lg text-pp-muted">
+        Send an invoice in one sentence. Get paid without the awkward chasing.
+      </p>
+      <ul className="mt-8 grid gap-4 sm:grid-cols-3">
+        {actions.map((a) => (
+          <li key={a.href}>
+            <Link
+              href={a.href}
+              className="flex h-full flex-col rounded-lg border border-pp-border bg-pp-surface p-5 hover:border-pp-blue"
+            >
+              <span className="font-semibold text-pp-navy">{a.title} →</span>
+              <span className="mt-2 text-sm text-pp-muted">{a.text}</span>
+            </Link>
+          </li>
+        ))}
       </ul>
-      <h2 className="mt-10 text-sm font-semibold uppercase tracking-wider text-pp-muted">Endpoints</h2>
+      <p className="mt-6 text-sm text-pp-muted">Runs on the PayPal sandbox, so no real money moves.</p>
+
+      <h2 className="mt-12 text-sm font-semibold uppercase tracking-wider text-pp-muted">Under the hood: raw PayPal data</h2>
       <ul className="mt-2 divide-y divide-pp-border border-y border-pp-border">
         {endpoints.map((page) => (
           <PageLink key={page.href} {...page} />
