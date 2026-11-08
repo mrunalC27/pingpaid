@@ -296,3 +296,12 @@ export async function createAndSendInvoice(input: NewInvoice): Promise<{ id: str
   });
   return { id, invoiceNumber: invoice_number };
 }
+
+/** Sends PayPal's own reminder email for an invoice, with our subject and message. */
+export async function sendInvoiceReminder(invoiceId: string, subject: string, note: string): Promise<void> {
+  await post(`/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/remind`, {
+    subject,
+    note,
+    send_to_invoicer: false,
+  });
+}
