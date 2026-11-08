@@ -62,6 +62,27 @@ async function get<T>(path: string): Promise<T> {
   }
 }
 
+// POST with a JSON body. Some PayPal calls (such as invoice "send") answer with an empty body.
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const text = await res.text();
+      return (text ? JSON.parse(text) : {}) as T;
+    }
+    if (res.status === 401 && attempt === 1) {
+      cachedToken = undefined;
+      continue;
+    }
+    throw new PayPalApiError(res.status, path, await res.text());
+  }
+}
+
 // `path` must already carry whatever flag makes the endpoint report `total_pages`.
 async function listAll<T>(path: string, key: string, pageSize: number): Promise<T[]> {
   const items: T[] = [];
@@ -220,4 +241,58 @@ export type Balances = {
 
 export function getBalances(): Promise<Balances> {
   return get<Balances>('/v1/reporting/balances');
+}
+
+// --- Creating and sending invoices -------------------------------------------------
+
+export type NewInvoice = {
+  clientName: string;
+  clientEmail: string;
+  currency: string;
+  dueInDays: number;
+  items: { name: string; quantity: number; unitPrice: number }[];
+};
+
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+
+/** Creates an invoice in the sandbox and sends it to the client. Returns its PayPal id and number. */
+export async function createAndSendInvoice(input: NewInvoice): Promise<{ id: string; invoiceNumber: string }> {
+  const { invoice_number } = await post<{ invoice_number: string }>('/v2/invoicing/generate-next-invoice-number');
+
+  const today = new Date();
+  const due = new Date(today.getTime() + input.dueInDays * 86_400_000);
+  const [givenName, ...rest] = input.clientName.trim().split(/\s+/);
+
+  const draft = await post<{ href: string }>('/v2/invoicing/invoices', {
+    detail: {
+      invoice_number,
+      currency_code: input.currency,
+      invoice_date: ymd(today),
+      payment_term: { term_type: 'DUE_ON_DATE_SPECIFIED', due_date: ymd(due) },
+    },
+    primary_recipients: [
+      {
+        billing_info: {
+          name: { given_name: givenName, ...(rest.length ? { surname: rest.join(' ') } : {}) },
+          email_address: input.clientEmail,
+        },
+      },
+    ],
+    items: input.items.map((i) => ({
+      name: i.name,
+      quantity: String(i.quantity),
+      unit_amount: { currency_code: input.currency, value: i.unitPrice.toFixed(2) },
+      unit_of_measure: 'QUANTITY',
+    })),
+  });
+
+  // The create call answers with a link ending in the new invoice's id.
+  const id = draft.href.split('/').pop();
+  if (!id) throw new Error('PayPal created the invoice but did not return its id.');
+
+  await post(`/v2/invoicing/invoices/${encodeURIComponent(id)}/send`, {
+    send_to_recipient: true,
+    send_to_invoicer: false,
+  });
+  return { id, invoiceNumber: invoice_number };
 }
