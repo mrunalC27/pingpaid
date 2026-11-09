@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Item = { name: string; quantity: number; unitPrice: number };
 type Draft = { clientName: string; clientEmail: string; currency: string; dueInDays: number; items: Item[] };
@@ -10,10 +10,10 @@ const EXAMPLE = 'Logo design for Rahul Sharma (rahul@example.com), 3 hours at $2
 const input = 'w-full rounded-md border border-pp-border bg-pp-surface px-3 py-2 focus:border-pp-blue focus:outline-none';
 const button = 'rounded-full bg-pp-blue px-5 py-2 font-semibold text-white hover:bg-pp-blue-dark disabled:opacity-50';
 
-async function call<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function call<T>(url: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? 'Something went wrong. Try again.');
+  if (!res.ok) throw Object.assign(new Error(data.error ?? 'Something went wrong. Try again.'), { duplicate: data.duplicate === true });
   return data as T;
 }
 
@@ -22,7 +22,16 @@ export function NewInvoiceForm() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState<'parse' | 'send' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ id: string; invoiceNumber: string } | null>(null);
+  // Set when an identical invoice was just sent. The user can still choose to send anyway.
+  // It is tied to the draft it was raised for, so editing the invoice hides it.
+  const [duplicate, setDuplicate] = useState<{ message: string; draft: Draft } | null>(null);
+  const [sent, setSent] = useState<{ id: string; invoiceNumber: string; repeated?: boolean } | null>(null);
+  // One key per invoice being sent. A retry or double click reuses it, so PayPal only gets one invoice.
+  // Changing the draft gives it a fresh key.
+  const attemptKey = useRef<string | null>(null);
+  useEffect(() => {
+    attemptKey.current = null;
+  }, [draft]);
 
   async function parse() {
     setBusy('parse');
@@ -37,14 +46,19 @@ export function NewInvoiceForm() {
     }
   }
 
-  async function send() {
+  async function send(confirmDuplicate = false) {
     if (!draft) return;
     setBusy('send');
     setError(null);
+    setDuplicate(null);
     try {
-      setSent(await call('/api/invoices', draft));
+      attemptKey.current ??= crypto.randomUUID();
+      const headers: Record<string, string> = { 'Idempotency-Key': attemptKey.current };
+      if (confirmDuplicate) headers['X-Confirm-Duplicate'] = 'yes';
+      setSent(await call('/api/invoices', draft, headers));
     } catch (e) {
-      setError((e as Error).message);
+      if ((e as { duplicate?: boolean }).duplicate) setDuplicate({ message: (e as Error).message, draft });
+      else setError((e as Error).message);
     } finally {
       setBusy(null);
     }
@@ -58,6 +72,7 @@ export function NewInvoiceForm() {
       <div className="mt-8 rounded-lg border border-pp-border bg-pp-surface p-6">
         <h2 className="text-xl font-semibold text-pp-success">Invoice {sent.invoiceNumber} sent</h2>
         <p className="mt-1 text-pp-muted">It was sent to {draft.clientEmail} through the PayPal sandbox.</p>
+        {sent.repeated && <p className="mt-1 text-sm text-pp-muted">This invoice had already been sent a moment ago, so I did not make a second one.</p>}
         <div className="mt-4 flex gap-3">
           <Link href="/invoices" className={button}>See all invoices</Link>
           <button className="px-3 font-semibold text-pp-blue" onClick={() => { setSent(null); setDraft(null); setText(''); }}>
@@ -128,10 +143,17 @@ export function NewInvoiceForm() {
 
           <div className="flex items-center justify-between border-t border-pp-border pt-4">
             <p className="text-lg font-semibold">Total: {total.toFixed(2)} {draft.currency}</p>
-            <button className={button} disabled={busy !== null} onClick={send}>
+            <button className={button} disabled={busy !== null} onClick={() => send()}>
               {busy === 'send' ? 'Sending…' : 'Send invoice'}
             </button>
           </div>
+          {duplicate && duplicate.draft === draft && (
+            <div role="alert" className="rounded-md border border-pp-warning bg-amber-50 p-4">
+              <p className="font-semibold text-pp-warning">{duplicate.message}</p>
+              <p className="mt-1 text-sm text-pp-ink">Nothing was sent this time. If you really want a second one, send it anyway.</p>
+              <button className={`${button} mt-3`} disabled={busy !== null} onClick={() => send(true)}>Send anyway</button>
+            </div>
+          )}
         </section>
       )}
     </div>

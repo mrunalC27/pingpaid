@@ -256,7 +256,8 @@ export type NewInvoice = {
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 /** Creates an invoice in the sandbox and sends it to the client. Returns its PayPal id and number. */
-export async function createAndSendInvoice(input: NewInvoice): Promise<{ id: string; invoiceNumber: string }> {
+/** Step one: creates the invoice as a draft in PayPal. Nothing is emailed yet. */
+export async function createInvoiceDraft(input: NewInvoice): Promise<{ id: string; invoiceNumber: string }> {
   const { invoice_number } = await post<{ invoice_number: string }>('/v2/invoicing/generate-next-invoice-number');
 
   const today = new Date();
@@ -290,11 +291,21 @@ export async function createAndSendInvoice(input: NewInvoice): Promise<{ id: str
   const id = draft.href.split('/').pop();
   if (!id) throw new Error('PayPal created the invoice but did not return its id.');
 
+  return { id, invoiceNumber: invoice_number };
+}
+
+/** Step two: emails a draft invoice to the client. */
+export async function sendInvoice(id: string): Promise<void> {
   await post(`/v2/invoicing/invoices/${encodeURIComponent(id)}/send`, {
     send_to_recipient: true,
     send_to_invoicer: false,
   });
-  return { id, invoiceNumber: invoice_number };
+}
+
+export async function createAndSendInvoice(input: NewInvoice): Promise<{ id: string; invoiceNumber: string }> {
+  const created = await createInvoiceDraft(input);
+  await sendInvoice(created.id);
+  return created;
 }
 
 /** Sends PayPal's own reminder email for an invoice, with our subject and message. */

@@ -1,9 +1,14 @@
-import { createAndSendInvoice, PayPalApiError, type NewInvoice } from '@/lib/paypal';
+import { createInvoiceOnce, DuplicateInvoiceError, isValidAttemptKey } from '@/lib/invoice-attempts';
+import { PayPalApiError, type NewInvoice } from '@/lib/paypal';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Step 2: the user has checked the draft, so create the invoice in the PayPal sandbox and send it.
+// The page sends an "Idempotency-Key" with every click, so the same click twice makes one invoice.
 export async function POST(request: Request) {
+  const key = request.headers.get('Idempotency-Key');
+  if (!isValidAttemptKey(key)) return Response.json({ error: 'Missing or invalid Idempotency-Key header.' }, { status: 400 });
+
   let body: NewInvoice;
   try {
     body = await request.json();
@@ -23,8 +28,9 @@ export async function POST(request: Request) {
   if (problem) return Response.json({ error: problem }, { status: 400 });
 
   try {
-    return Response.json(await createAndSendInvoice(body));
+    return Response.json(await createInvoiceOnce(key, body, request.headers.get('X-Confirm-Duplicate') === 'yes'));
   } catch (e) {
+    if (e instanceof DuplicateInvoiceError) return Response.json({ error: e.message, duplicate: true }, { status: 409 });
     console.error('[invoice] create/send failed', String(e));
     const message = e instanceof PayPalApiError ? `PayPal said no (${e.status}). ${e.message.slice(0, 400)}` : 'Could not create the invoice.';
     return Response.json({ error: message }, { status: 502 });
