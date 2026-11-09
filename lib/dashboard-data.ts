@@ -14,6 +14,7 @@ import {
   type Product,
   type Transaction,
 } from './paypal';
+import { nudgeCountFrom } from './nudges';
 
 // Flat rows for the Dashboard's AG Studio data sources. Relationships between them:
 //   invoices.customerId        -> customers.id
@@ -289,6 +290,7 @@ export async function getDashboardData(asOf = new Date()) {
 
   return {
     asOf: asOf.toISOString(),
+    nudgeCount: await nudgeCountFrom(invoices, asOf),
     customers: customerRows(invoices),
     invoices: invoiceRows(invoices, today),
     invoiceItems: invoiceItemRows(invoices),

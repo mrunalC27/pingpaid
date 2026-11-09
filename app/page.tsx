@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { connection } from 'next/server';
+import { countNudges } from '@/lib/nudges';
 
 const actions = [
   { href: '/new', title: 'New invoice', text: 'Type one sentence. AI fills in the invoice and PayPal sends it.' },
@@ -26,7 +28,16 @@ function PageLink({ href, label, detail }: { href: string; label: string; detail
   );
 }
 
-export default function Home() {
+export default async function Home() {
+  // Live PayPal data. If PayPal is unreachable, the page still loads, just without the count.
+  await connection();
+  let nudgeCount: number | null = null;
+  try {
+    nudgeCount = await countNudges();
+  } catch (e) {
+    console.error('[home] could not count nudges:', String(e));
+  }
+
   return (
     <main className="mx-auto w-full max-w-3xl p-8 pt-16 font-paypal text-pp-ink sm:p-16">
       <h1 className="text-4xl font-bold tracking-tight text-pp-navy">
@@ -44,6 +55,15 @@ export default function Home() {
             >
               <span className="font-semibold text-pp-navy">{a.title} →</span>
               <span className="mt-2 text-sm text-pp-muted">{a.text}</span>
+              {a.href === '/nudge' && nudgeCount !== null && (
+                <span
+                  className={`mt-3 w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                    nudgeCount > 0 ? 'bg-amber-50 text-pp-warning' : 'bg-green-50 text-pp-success'
+                  }`}
+                >
+                  {nudgeCount > 0 ? `${nudgeCount} need${nudgeCount === 1 ? 's' : ''} a nudge` : 'All caught up'}
+                </span>
+              )}
             </Link>
           </li>
         ))}

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { BellIcon, HelpIcon } from './ui/icons';
 import { AgStudioLogo } from './ui/logo';
@@ -21,7 +22,7 @@ function BrandLockup() {
   );
 }
 
-function TopBar() {
+function TopBar({ nudgeCount }: { nudgeCount?: number }) {
   return (
     <header className="flex h-16 shrink-0 items-center gap-6 border-b border-pp-border bg-white px-6">
       <BrandLockup />
@@ -29,9 +30,23 @@ function TopBar() {
         <span className="inline-flex size-9 items-center justify-center rounded-full" title="Help">
           <HelpIcon />
         </span>
-        <span className="inline-flex size-9 items-center justify-center rounded-full" title="Notifications">
-          <BellIcon />
-        </span>
+        {nudgeCount && nudgeCount > 0 ? (
+          <Link
+            href="/nudge"
+            className="relative inline-flex size-9 items-center justify-center rounded-full hover:bg-pp-canvas"
+            title={`${nudgeCount} invoice${nudgeCount === 1 ? ' needs' : 's need'} a nudge`}
+            aria-label={`${nudgeCount} invoice${nudgeCount === 1 ? ' needs' : 's need'} a nudge. Open the nudge page`}
+          >
+            <BellIcon />
+            <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-pp-danger px-1 text-[10px] font-bold leading-4 text-white">
+              {nudgeCount}
+            </span>
+          </Link>
+        ) : (
+          <span className="inline-flex size-9 items-center justify-center rounded-full" title="Notifications">
+            <BellIcon />
+          </span>
+        )}
         <span className="ml-2 flex items-center gap-2">
           <span className="flex size-9 items-center justify-center rounded-full bg-pp-navy text-sm font-semibold text-white">
             PP
@@ -45,14 +60,17 @@ function TopBar() {
 
 export function AppShell({
   sidebar,
+  nudgeCount,
   children,
 }: {
   sidebar: ReactNode;
+  /** How many invoices need a nudge. Shown on the bell, which links to the nudge page. */
+  nudgeCount?: number;
   children: ReactNode;
 }) {
   return (
     <div className="flex h-dvh flex-col bg-pp-canvas font-paypal text-pp-ink">
-      <TopBar />
+      <TopBar nudgeCount={nudgeCount} />
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-64 shrink-0 flex-col border-r border-pp-border bg-white" aria-label="Reports">
           {sidebar}

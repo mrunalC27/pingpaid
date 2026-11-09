@@ -135,6 +135,30 @@ async function writeMessages(candidates: Candidate[]): Promise<Map<string, strin
   );
 }
 
+// How long ago each candidate was last reminded, and which ones were not reminded recently.
+async function recentReminders(all: Candidate[], now: Date) {
+  const lastSent = lastSentByInvoice(await readLog());
+  const ago = (id: string) => {
+    const sentAt = lastSent.get(id);
+    return sentAt ? daysSince(sentAt, now) : null;
+  };
+  return { ago, fresh: all.filter((c) => (ago(c.invoiceId) ?? Infinity) >= COOLDOWN_DAYS) };
+}
+
+/** The nudge page's default look-ahead: invoices due within this many days count as "needs a nudge". */
+export const DEFAULT_WINDOW_DAYS = 2;
+
+/** How many invoices need a nudge right now (what the nudge page would list by default). Uses no AI. */
+export async function nudgeCountFrom(invoices: Invoice[], now = new Date()): Promise<number> {
+  const all = pickCandidates(invoices, now.toISOString().slice(0, 10), DEFAULT_WINDOW_DAYS);
+  return (await recentReminders(all, now)).fresh.length;
+}
+
+/** Same as nudgeCountFrom, for pages that have not loaded the invoices yet. */
+export async function countNudges(now = new Date()): Promise<number> {
+  return nudgeCountFrom(await listInvoices(), now);
+}
+
 /**
  * Looks at every invoice and returns a ready-to-send reminder for each one that needs it.
  * Invoices reminded in the last COOLDOWN_DAYS days are left out (and counted in `skippedRecent`)
@@ -147,12 +171,8 @@ export async function draftNudges(
   const invoices = await listInvoices();
   const all = pickCandidates(invoices, now.toISOString().slice(0, 10), windowDays);
 
-  const lastSent = lastSentByInvoice(await readLog());
-  const ago = (id: string) => {
-    const sentAt = lastSent.get(id);
-    return sentAt ? daysSince(sentAt, now) : null;
-  };
-  const candidates = includeRecent ? all : all.filter((c) => (ago(c.invoiceId) ?? Infinity) >= COOLDOWN_DAYS);
+  const { ago, fresh } = await recentReminders(all, now);
+  const candidates = includeRecent ? all : fresh;
   const skippedRecent = all.length - candidates.length;
   if (candidates.length === 0) return { checked: invoices.length, skippedRecent, nudges: [] };
 

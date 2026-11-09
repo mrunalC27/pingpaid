@@ -214,6 +214,7 @@ function ReportsDashboard({ data, licenseKey, aiModels }: DashboardProps) {
 
   return (
     <AppShell
+      nudgeCount={data.nudgeCount}
       sidebar={
         <ReportsSidebar
           reports={reports}
