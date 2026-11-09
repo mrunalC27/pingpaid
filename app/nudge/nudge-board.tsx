@@ -16,8 +16,9 @@ type Nudge = {
   subject: string;
   message: string;
   source: 'ai' | 'template';
+  lastRemindedDaysAgo: number | null;
 };
-type Card = Nudge & { selected: boolean; result?: { ok: boolean; error?: string } };
+type Card = Nudge & { selected: boolean; result?: { ok: boolean; skipped?: boolean; error?: string } };
 
 const TONES: Record<Tone, { label: string; style: string }> = {
   'heads-up': { label: 'Heads-up', style: 'bg-pp-highlight text-pp-blue-dark' },
@@ -28,6 +29,8 @@ const TONES: Record<Tone, { label: string; style: string }> = {
 
 const button = 'rounded-full bg-pp-blue px-5 py-2 font-semibold text-white hover:bg-pp-blue-dark disabled:opacity-50';
 const input = 'rounded-md border border-pp-border bg-pp-surface px-3 py-2 focus:border-pp-blue focus:outline-none';
+
+const ago = (d: number) => (d === 0 ? 'today' : `${d} day${d === 1 ? '' : 's'} ago`);
 
 const when = (d: number) =>
   d > 0 ? `${d} day${d === 1 ? '' : 's'} overdue` : d === 0 ? 'due today' : `due in ${-d} day${d === -1 ? '' : 's'}`;
@@ -43,6 +46,10 @@ export function NudgeBoard() {
   const [windowDays, setWindowDays] = useState(2);
   const [cards, setCards] = useState<Card[] | null>(null);
   const [checked, setChecked] = useState(0);
+  const [skipped, setSkipped] = useState(0);
+  const [includeRecent, setIncludeRecent] = useState(false);
+  // Whether the cards on screen were drafted with "include recent" on. The server needs to know when sending.
+  const [draftedWithRecent, setDraftedWithRecent] = useState(false);
   const [busy, setBusy] = useState<'check' | 'send' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,8 +57,10 @@ export function NudgeBoard() {
     setBusy('check');
     setError(null);
     try {
-      const data = await call<{ checked: number; nudges: Nudge[] }>('/api/nudges/draft', { windowDays });
+      const data = await call<{ checked: number; skippedRecent: number; nudges: Nudge[] }>('/api/nudges/draft', { windowDays, includeRecent });
       setChecked(data.checked);
+      setSkipped(data.skippedRecent);
+      setDraftedWithRecent(includeRecent);
       setCards(data.nudges.map((n) => ({ ...n, selected: true })));
     } catch (e) {
       setError((e as Error).message);
@@ -66,8 +75,16 @@ export function NudgeBoard() {
     setBusy('send');
     setError(null);
     try {
-      const { results } = await call<{ results: { invoiceId: string; ok: boolean; error?: string }[] }>('/api/nudges/send', {
-        items: chosen.map((c) => ({ invoiceId: c.invoiceId, subject: c.subject, message: c.message })),
+      const { results } = await call<{ results: { invoiceId: string; ok: boolean; skipped?: boolean; error?: string }[] }>('/api/nudges/send', {
+        allowRecent: draftedWithRecent,
+        items: chosen.map((c) => ({
+          invoiceId: c.invoiceId,
+          subject: c.subject,
+          message: c.message,
+          invoiceNumber: c.invoiceNumber,
+          clientName: c.clientName,
+          tone: c.tone,
+        })),
       });
       setCards((prev) => prev && prev.map((c) => ({ ...c, result: results.find((r) => r.invoiceId === c.invoiceId) ?? c.result })));
     } catch (e) {
@@ -97,13 +114,26 @@ export function NudgeBoard() {
             ))}
           </select>
         </label>
+        <label className="flex items-center gap-2 text-sm text-pp-muted">
+          <input type="checkbox" className="size-4" checked={includeRecent} onChange={(e) => setIncludeRecent(e.target.checked)} />
+          Also show ones I reminded in the last 3 days
+        </label>
       </div>
 
       {error && <p role="alert" className="rounded-md border border-pp-danger bg-white p-3 text-pp-danger">{error}</p>}
 
       {cards && cards.length === 0 && (
         <p className="rounded-lg border border-pp-border bg-pp-surface p-6">
-          Nobody needs a nudge right now. I checked {checked} invoice{checked === 1 ? '' : 's'}. Try a longer window to see ones that are due soon.
+          Nobody needs a nudge right now. I checked {checked} invoice{checked === 1 ? '' : 's'}.
+          {skipped > 0
+            ? ` ${skipped} ${skipped === 1 ? 'was' : 'were'} skipped because you reminded ${skipped === 1 ? 'it' : 'them'} in the last 3 days.`
+            : ' Try a longer window to see ones that are due soon.'}
+        </p>
+      )}
+
+      {cards && cards.length > 0 && skipped > 0 && (
+        <p className="text-sm text-pp-muted">
+          {skipped} more invoice{skipped === 1 ? ' was' : 's were'} skipped because you reminded {skipped === 1 ? 'it' : 'them'} in the last 3 days.
         </p>
       )}
 
@@ -128,6 +158,7 @@ export function NudgeBoard() {
                 Invoice {c.invoiceNumber} · {c.amount.toFixed(2)} {c.currency} · due {c.dueDate} ·{' '}
                 <span className={c.daysOverdue > 0 ? 'font-semibold text-pp-danger' : ''}>{when(c.daysOverdue)}</span>
               </p>
+              {c.lastRemindedDaysAgo !== null && <p className="text-sm text-pp-muted">Last reminded {ago(c.lastRemindedDaysAgo)}</p>}
             </div>
           </div>
           <textarea
@@ -139,7 +170,9 @@ export function NudgeBoard() {
             onChange={(e) => patch(c.invoiceId, { message: e.target.value })}
           />
           {c.result?.ok && <p className="text-sm font-semibold text-pp-success">Sent to {c.clientEmail}</p>}
-          {c.result && !c.result.ok && <p role="alert" className="text-sm text-pp-danger">Could not send: {c.result.error}</p>}
+          {c.result && !c.result.ok && (
+            <p role="alert" className="text-sm text-pp-danger">{c.result.skipped ? c.result.error : `Could not send: ${c.result.error}`}</p>
+          )}
         </article>
       ))}
 

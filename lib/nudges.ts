@@ -3,6 +3,7 @@
 
 import { generateJson } from './gemini';
 import { amountOf, listInvoices, type Invoice, type InvoiceStatus } from './paypal';
+import { COOLDOWN_DAYS, daysSince, lastSentByInvoice, readLog } from './reminder-log';
 
 export type Tone = 'heads-up' | 'gentle' | 'clear' | 'firm';
 
@@ -21,6 +22,8 @@ export type Nudge = {
   message: string;
   /** 'ai' when Gemini wrote the message, 'template' when it was unavailable. */
   source: 'ai' | 'template';
+  /** Whole days since PingPaid last reminded this invoice, or null if it never has. */
+  lastRemindedDaysAgo: number | null;
 };
 
 const UNPAID = new Set<InvoiceStatus>(['SENT', 'UNPAID', 'PAYMENT_PENDING', 'PARTIALLY_PAID']);
@@ -34,7 +37,7 @@ const money = (n: number, currency: string) => `${n.toFixed(2)} ${currency}`;
 const dueText = (daysOverdue: number) =>
   daysOverdue > 0 ? `${daysOverdue} day${daysOverdue === 1 ? '' : 's'} overdue` : daysOverdue === 0 ? 'due today' : `due in ${-daysOverdue} day${daysOverdue === -1 ? '' : 's'}`;
 
-type Candidate = Omit<Nudge, 'subject' | 'message' | 'source'>;
+type Candidate = Omit<Nudge, 'subject' | 'message' | 'source' | 'lastRemindedDaysAgo'>;
 
 /** Unpaid invoices that are overdue or due within `windowDays`, most late first. */
 export function pickCandidates(invoices: Invoice[], today: string, windowDays: number): Candidate[] {
@@ -132,11 +135,26 @@ async function writeMessages(candidates: Candidate[]): Promise<Map<string, strin
   );
 }
 
-/** Looks at every invoice and returns a ready-to-send reminder for each one that needs it. */
-export async function draftNudges(windowDays: number, now = new Date()): Promise<{ checked: number; nudges: Nudge[] }> {
+/**
+ * Looks at every invoice and returns a ready-to-send reminder for each one that needs it.
+ * Invoices reminded in the last COOLDOWN_DAYS days are left out (and counted in `skippedRecent`)
+ * unless `includeRecent` is true.
+ */
+export async function draftNudges(
+  windowDays: number,
+  { includeRecent = false, now = new Date() }: { includeRecent?: boolean; now?: Date } = {},
+): Promise<{ checked: number; skippedRecent: number; nudges: Nudge[] }> {
   const invoices = await listInvoices();
-  const candidates = pickCandidates(invoices, now.toISOString().slice(0, 10), windowDays);
-  if (candidates.length === 0) return { checked: invoices.length, nudges: [] };
+  const all = pickCandidates(invoices, now.toISOString().slice(0, 10), windowDays);
+
+  const lastSent = lastSentByInvoice(await readLog());
+  const ago = (id: string) => {
+    const sentAt = lastSent.get(id);
+    return sentAt ? daysSince(sentAt, now) : null;
+  };
+  const candidates = includeRecent ? all : all.filter((c) => (ago(c.invoiceId) ?? Infinity) >= COOLDOWN_DAYS);
+  const skippedRecent = all.length - candidates.length;
+  if (candidates.length === 0) return { checked: invoices.length, skippedRecent, nudges: [] };
 
   let written = new Map<string, string>();
   try {
@@ -147,9 +165,16 @@ export async function draftNudges(windowDays: number, now = new Date()): Promise
 
   return {
     checked: invoices.length,
+    skippedRecent,
     nudges: candidates.map((c) => {
       const ai = written.get(c.invoiceId);
-      return { ...c, subject: subjectFor(c), message: ai ?? templateFor(c), source: ai ? 'ai' : 'template' };
+      return {
+        ...c,
+        subject: subjectFor(c),
+        message: ai ?? templateFor(c),
+        source: ai ? 'ai' : 'template',
+        lastRemindedDaysAgo: ago(c.invoiceId),
+      };
     }),
   };
 }
